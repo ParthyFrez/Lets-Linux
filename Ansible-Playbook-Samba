@@ -1,0 +1,69 @@
+---
+- name: Playbook to Install and Configure Samba Server
+  hosts: node1
+  tasks:
+    - name: Installing Samba Server
+      dnf:
+        name: samba
+        state: latest
+    - name: Creating Samba Group
+      group:
+        name: sambausers
+        state: present
+    - name: Creating 2 Samba Users
+      user:
+        name: "{{ item }}"
+        shell: /sbin/nologin
+        groups: sambausers
+        append: yes
+        create_home: no
+      loop:
+        - user1
+        - user2
+    - name: Creating Directory for Samba Share
+      file:
+        path: /sambashare
+        state: directory
+        owner: root
+        group: sambausers
+        mode: "2775"
+        setype: samba_share_t
+    - name: Adding Users to Samba and Set Password
+      shell: smbpasswd -s -a  {{ item }}
+      args:
+        stdin: "redhat\nredhat"
+      loop:
+        - user1
+        - user2
+    - name: Enabling Users in Samba
+      shell: smbpasswd -e {{ item }}
+      loop:
+        - user1
+        - user2
+    - name: Configure smb.conf to Create the Samba Share
+      blockinfile:
+        path: /etc/samba/smb.conf
+        block: |
+          [production]
+                  path = /sambashare
+                  guest ok = no
+                  writable = yes
+                  browsable = yes
+                  valid users = user1, user2, @sambausers
+                  write list = @sambausers
+                  read list = @sambausers
+      notify:
+        - smb_service
+        - firewall_port
+  handlers:
+    - name: smb_service
+      service:
+        name: smb
+        state: started
+        enabled: yes
+    - name: firewall_port
+      firewalld:
+        service: samba
+        state: enabled
+        immediate: yes
+        permanent: yes
